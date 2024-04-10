@@ -1,6 +1,5 @@
 import os
 import sys
-import uuid
 parent_parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 rwkv_ext_dir = os.path.join(parent_parent_dir, 'RWKV_LM_EXT')
 sys.path.append(rwkv_ext_dir)
@@ -12,7 +11,9 @@ import argparse
 import chromadb
 import orjson
 import tqdm
-def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_qdrant,use_bge=False,bge_path=None,need_clean=False):
+def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_qdrant,use_bge=False,bge_path=None,need_clean=False,host='localhost '):
+    import uuid
+    import os
     if need_clean:
         from clean import clean_in_order
         clean_functions=[
@@ -43,15 +44,16 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
         encoder = BiEncoder(rwkv_base,lora_path,tokenizer)
     print(colorama.Fore.GREEN + f"adding records from {input_file}" + colorama.Style.RESET_ALL)
     batch_insert = 1000
+    all_uuids_added = []
     with open(input_file, 'r', encoding='UTF-8') as f:
         lines = f.readlines()
         if is_qdrant:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance,VectorParams
             from qdrant_client import models
-            qdrant_client = QdrantClient("localhost",prefer_grpc=True,grpc_port=6334)
+            qdrant_client = QdrantClient(host,prefer_grpc=True,grpc_port=6334)
         else:
-            chroma_client = chromadb.HttpClient(host='localhost', port=8000)
+            chroma_client = chromadb.HttpClient(host=host, port=8000)
             chroma_collection = chroma_client.get_or_create_collection('mycorpus_vdb')
         progress_bar = tqdm.tqdm(lines,desc=f'adding {input_file} to vdb')
         documents=[]
@@ -77,8 +79,9 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
                 print(colorama.Fore.YELLOW+f'adding {batch_insert} records to vdb'+colorama.Style.RESET_ALL)
                 if is_qdrant:
                     uuids = [str(uuid.uuid4()) for i in range(len(ids))]
-                    points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i], 'textid':ids[i]} for i in range(len(documents))])
+                    points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
                     qdrant_client.upsert(collection_name='mycorpus_vdb',points=points)
+                    all_uuids_added.extend(uuids)
                 else:
                     chroma_collection.add(documents=documents,embeddings=all_embeddings,ids=ids)
                 documents=[]
@@ -86,10 +89,18 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
                 ids=[]
         if len(ids) > 0:
             if is_qdrant:
-                points = models.Batch(ids=ids, vectors=all_embeddings,payloads=[{'doc':doc} for doc in documents])
+                uuids = [str(uuid.uuid4()) for i in range(len(ids))]
+                points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':doc} for doc in documents])
                 qdrant_client.upsert(collection_name='mycorpus_vdb',points=points)
+                all_uuids_added.extend(uuids)
             else:
                 chroma_collection.add(documents=documents,embeddings=embeddings,ids=ids)
+    #uuid is stored into the basename(input_file)_uuids.txt
+    uuid_file = os.path.join(os.path.dirname(input_file),os.path.basename(input_file).split('.')[0]+'_uuids.txt')
+    print(colorama.Fore.YELLOW+f'saving uuids to {uuid_file}'+colorama.Style.RESET_ALL)
+    with open(uuid_file,'w',encoding='UTF-8') as f:
+        for uuid in all_uuids_added:
+            f.write(uuid+'\n')
     print(colorama.Fore.RED+f'finished reading {input_file}'+colorama.Style.RESET_ALL)
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='build vdb from corpus')
@@ -105,7 +116,7 @@ if __name__ == '__main__':
     parser.add_argument('--bge_path',type=str,default='/media/yueyulin/KINGSTON/models/bge-m3')
     parser.add_argument('--use_bge',action='store_true',default=False,help='use bge instead of rwkv')
     parser.add_argument('--need_clean',action='store_true',default=False,help='clean the input file before adding to db')
-
+    parser.add_argument('--host',type=str,default='localhost',help='host of qdrant')
     args = parser.parse_args()
     is_dir = True
     if os.path.isfile(args.input):    
@@ -124,11 +135,11 @@ if __name__ == '__main__':
         with mp.Pool(args.num_processes) as pool:
             for file in os.listdir(args.input):
                 if file.endswith('.json') or file.endswith('.jsonl'):
-                    pool.apply_async(add_record_to_db,args = (os.path.join(args.input,file),args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean))
+                    pool.apply_async(add_record_to_db,args = (os.path.join(args.input,file),args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean,args.host))
             pool.close()
             pool.join()
     else:
-        add_record_to_db(args.input,args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean)
+        add_record_to_db(args.input,args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean,args.host)
     if not args.is_qdrant:
         print(colorama.Fore.YELLOW+f"closing db {db_path}"+colorama.Fore.RESET)
         db_proc.terminate()
