@@ -40,7 +40,7 @@ curl -X PUT -H "Content-Type: application/json" -d '{
 ## Create vdb
 Using bge-m3 because we need to encode English as well as Chinese.
 
-- Download baai/bge-m3 model locally
+- Download BAAI/bge-m3 model locally. Follow the instructions: https://hf-mirror.com/ 
 - Install FlagEmbedding : pip install -U FlagEmbedding
 ```python
 python src/02_vdb_build.py --input /home/yueyulin/tmp/RedPajamaCommonCrawl --is_qdrant --use_bge --bge_path /media/yueyulin/KINGSTON/models/bge-m3 --need_clean --content_field text --num_processes 8
