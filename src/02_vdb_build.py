@@ -90,7 +90,7 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
         if len(ids) > 0:
             if is_qdrant:
                 uuids = [str(uuid.uuid4()) for i in range(len(ids))]
-                points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':doc} for doc in documents])
+                points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
                 qdrant_client.upsert(collection_name='mycorpus_vdb',points=points)
                 all_uuids_added.extend(uuids)
             else:
