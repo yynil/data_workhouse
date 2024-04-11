@@ -17,7 +17,7 @@ def query_vdb_find_candidate(host,id_file,score_threshold=0.9):
         'score':[]
     }
     from tqdm import tqdm
-    progess = tqdm(ids,desc='querying id')
+    progess = tqdm(ids,desc=f'querying id in {id_file}')
     for id in progess:
         id = id.strip()
         records = client.retrieve(collection_name,[id],with_payload=True,with_vectors=True)
@@ -56,11 +56,25 @@ def query_vdb_find_candidate(host,id_file,score_threshold=0.9):
     df = pd.DataFrame(duplicated_data)
     output_file = os.path.join(os.path.dirname(id_file),os.path.basename(id_file).split('.')[0]+'_duplicated.csv')
     df.to_csv(output_file,index=False)
+    print(f'output saved to {output_file} for {id_file}')
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='query vdb')
     parser.add_argument('--host', type=str, default='localhost',help='host of vdb')
     parser.add_argument('--id_file', type=str, default='all_ids.txt',help='id_file to query')
+    parser.add_argument('--input_dir',type=str,help='input directory')
+    parser.add_argument('--num_process',type=int,default=4,help='number of process to use for multiprocessing')
     args = parser.parse_args()
-    query_vdb_find_candidate(args.host,args.id_file)
+    if args.input_dir:
+        import os
+        file_list = []
+        for file in os.listdir(args.input_dir):
+            if file.endswith('.txt'):
+                file_list.append(os.path.join(args.input_dir,file))
+        import multiprocessing as mp
+        with mp.Pool(args.num_process) as pool:
+            pool.starmap(query_vdb_find_candidate,[(args.host,file) for file in file_list])
+        print('finished')
+    else:
+        query_vdb_find_candidate(args.host,args.id_file)
     
