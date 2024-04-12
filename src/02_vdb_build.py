@@ -11,7 +11,10 @@ import argparse
 import chromadb
 import orjson
 import tqdm
-def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_qdrant,use_bge=False,bge_path=None,need_clean=False,host='localhost '):
+
+
+
+def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_qdrant,use_bge=False,bge_path=None,need_clean=False,host='localhost',batch_size=32):
     import uuid
     import os
     if need_clean:
@@ -59,6 +62,7 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
         documents=[]
         all_embeddings=[]
         ids=[]
+        baches_to_be_encoded = []
         for line in progress_bar:
             data_obj = orjson.loads(line)
             if id_field in data_obj:
@@ -68,15 +72,18 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
             content = data_obj[content_field]
             if need_clean:
                 content = clean_in_order(content,clean_functions)
-            if use_bge:
-                embeddings = encoder.encode([content],batch_size=1,max_length=2048)['dense_vecs'].tolist()
-            else:
-                embeddings = encoder.encode_texts([content]).tolist()
+            baches_to_be_encoded.append(content)
+            if len(baches_to_be_encoded) >= batch_size:
+                baches_to_be_encoded, embeddings = encode(use_bge, encoder, all_embeddings, baches_to_be_encoded)
+                all_embeddings.extend(embeddings)
             documents.append(content)
-            all_embeddings.extend(embeddings)
             ids.append(id)
             if len(ids) >= batch_insert:
                 print(colorama.Fore.YELLOW+f'adding {batch_insert} records to vdb'+colorama.Style.RESET_ALL)
+                if len(baches_to_be_encoded) > 0:
+                    baches_to_be_encoded, embeddings = encode(use_bge, encoder, all_embeddings, baches_to_be_encoded)
+                    all_embeddings.extend(embeddings)
+
                 if is_qdrant:
                     uuids = [str(uuid.uuid4()) for i in range(len(ids))]
                     points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
@@ -102,6 +109,17 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
         for uuid in all_uuids_added:
             f.write(uuid+'\n')
     print(colorama.Fore.RED+f'finished reading {input_file}'+colorama.Style.RESET_ALL)
+
+def encode(use_bge, encoder, all_embeddings, baches_to_be_encoded):
+    if use_bge:
+        embeddings = encoder.encode(baches_to_be_encoded,max_length=2048)['dense_vecs'].tolist()
+        all_embeddings.extend(embeddings)
+        baches_to_be_encoded = []
+    else:
+        embeddings = encoder.encode_texts(baches_to_be_encoded).tolist()
+        all_embeddings.extend(embeddings)
+        baches_to_be_encoded = []
+    return baches_to_be_encoded,embeddings
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='build vdb from corpus')
     parser.add_argument('--input', type=str, help='input file or directory')
@@ -116,6 +134,7 @@ if __name__ == '__main__':
     parser.add_argument('--bge_path',type=str,default='/media/yueyulin/KINGSTON/models/bge-m3')
     parser.add_argument('--use_bge',action='store_true',default=False,help='use bge instead of rwkv')
     parser.add_argument('--need_clean',action='store_true',default=False,help='clean the input file before adding to db')
+    parser.add_argument('--batch_size',type=int,default=32,help='batch size for encoding')
     parser.add_argument('--host',type=str,default='localhost',help='host of qdrant')
     args = parser.parse_args()
     is_dir = True
@@ -135,11 +154,11 @@ if __name__ == '__main__':
         with mp.Pool(args.num_processes) as pool:
             for file in os.listdir(args.input):
                 if file.endswith('.json') or file.endswith('.jsonl'):
-                    pool.apply_async(add_record_to_db,args = (os.path.join(args.input,file),args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean,args.host))
+                    pool.apply_async(add_record_to_db,args = (os.path.join(args.input,file),args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean,args.host, args.batch_size))
             pool.close()
             pool.join()
     else:
-        add_record_to_db(args.input,args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean,args.host)
+        add_record_to_db(args.input,args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.is_qdrant,args.use_bge,args.bge_path,args.need_clean,args.host, args.batch_size)
     if not args.is_qdrant:
         print(colorama.Fore.YELLOW+f"closing db {db_path}"+colorama.Fore.RESET)
         db_proc.terminate()
