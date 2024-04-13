@@ -75,14 +75,12 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
             baches_to_be_encoded.append(content)
             if len(baches_to_be_encoded) >= batch_size:
                 baches_to_be_encoded, embeddings = encode(use_bge, encoder, all_embeddings, baches_to_be_encoded)
-                all_embeddings.extend(embeddings)
             documents.append(content)
             ids.append(id)
             if len(ids) >= batch_insert:
                 print(colorama.Fore.YELLOW+f'adding {batch_insert} records to vdb'+colorama.Style.RESET_ALL)
                 if len(baches_to_be_encoded) > 0:
                     baches_to_be_encoded, embeddings = encode(use_bge, encoder, all_embeddings, baches_to_be_encoded)
-                    all_embeddings.extend(embeddings)
 
                 if is_qdrant:
                     uuids = [str(uuid.uuid4()) for i in range(len(ids))]
@@ -95,13 +93,15 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
                 all_embeddings=[]
                 ids=[]
         if len(ids) > 0:
+            if len(baches_to_be_encoded) > 0:
+                baches_to_be_encoded, embeddings = encode(use_bge, encoder, all_embeddings, baches_to_be_encoded)
             if is_qdrant:
                 uuids = [str(uuid.uuid4()) for i in range(len(ids))]
                 points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
                 qdrant_client.upsert(collection_name='mycorpus_vdb',points=points)
                 all_uuids_added.extend(uuids)
             else:
-                chroma_collection.add(documents=documents,embeddings=embeddings,ids=ids)
+                chroma_collection.add(documents=documents,embeddings=all_embeddings,ids=ids)
     #uuid is stored into the basename(input_file)_uuids.txt
     uuid_file = os.path.join(os.path.dirname(input_file),os.path.basename(input_file).split('.')[0]+'_uuids.txt')
     print(colorama.Fore.YELLOW+f'saving uuids to {uuid_file}'+colorama.Style.RESET_ALL)
