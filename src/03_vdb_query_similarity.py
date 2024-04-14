@@ -1,9 +1,11 @@
-def query_vdb_find_candidate(host,id_file,score_threshold=0.9):
+import colorama
+def query_vdb_find_candidate(host,id_file,score_threshold,output_dir):
+    print(colorama.Fore.GREEN + f"querying vdb for {id_file}, with threshold {score_threshold}, with output {output_dir} to host {host}" + colorama.Style.RESET_ALL)
     with open(id_file,'r',encoding='UTF-8') as f:
         ids = f.readlines()
     from qdrant_client import QdrantClient
     import qdrant_client.models as models
-    client = QdrantClient(host)
+    client = QdrantClient(host,prefer_grpc=True,grpc_port=6334)
     print('Client created')
     collection_name = 'mycorpus_vdb'
     offset = None
@@ -54,8 +56,8 @@ def query_vdb_find_candidate(host,id_file,score_threshold=0.9):
     import pandas as pd
     import os
     df = pd.DataFrame(duplicated_data)
-    output_file = os.path.join(os.path.dirname(id_file),os.path.basename(id_file).split('.')[0]+'_duplicated.csv')
-    df.to_csv(output_file,index=False)
+    output_file = os.path.join(output_dir,os.path.basename(id_file).split('.')[0]+'_duplicated.csv')
+    df.to_csv(output_file,index=False,escapechar='\\')
     print(f'output saved to {output_file} for {id_file}')
 if __name__ == '__main__':
     import argparse
@@ -64,17 +66,20 @@ if __name__ == '__main__':
     parser.add_argument('--id_file', type=str, default='all_ids.txt',help='id_file to query')
     parser.add_argument('--input_dir',type=str,help='input directory')
     parser.add_argument('--num_process',type=int,default=4,help='number of process to use for multiprocessing')
+    parser.add_argument('--score_threshold',type=float,default=0.9,help='score threshold to consider as duplicated')
+    parser.add_argument('--output_dir',type=str,help='output directory',required=True)
     args = parser.parse_args()
+    import os
+    os.makedirs(args.output_dir,exist_ok=True)
     if args.input_dir:
-        import os
         file_list = []
         for file in os.listdir(args.input_dir):
             if file.endswith('.txt'):
                 file_list.append(os.path.join(args.input_dir,file))
         import multiprocessing as mp
         with mp.Pool(args.num_process) as pool:
-            pool.starmap(query_vdb_find_candidate,[(args.host,file) for file in file_list])
+            pool.starmap(query_vdb_find_candidate,[(args.host,file,args.score_threshold,args.output_dir) for file in file_list])
         print('finished')
     else:
-        query_vdb_find_candidate(args.host,args.id_file)
+        query_vdb_find_candidate(args.host,args.id_file,args.score_threshold,args.output_dir)
     
