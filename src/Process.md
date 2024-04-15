@@ -20,7 +20,7 @@
 2. 在各个机器再把文件切割分配给不同进程。
 3. 多进程，多机器导入到向量数据库。
 
-![Import Diagrams](multiple_process_import.png)
+![Import Diagram](multiple_process_import.png)
 
 ## 多机器去重
 
@@ -28,3 +28,6 @@
 2. 由于计算阈值是幂等操作，对互相相似的文档，全局保留其中一个（可由不同策略控制，如最先出现，最长等）。
 3. 导出所有不重复的uuid成新的干净文档。
 4. 把去掉重的文档导出到版本目录，供前端查看人为查阅，为下一个版本提供更多策略。
+
+![Filter Diagram](filter.png)
+
