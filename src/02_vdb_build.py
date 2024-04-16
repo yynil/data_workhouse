@@ -12,7 +12,11 @@ import chromadb
 import orjson
 import tqdm
 
-
+import multiprocessing as mp
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance,VectorParams
+from qdrant_client import models
+import traceback
 
 def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_qdrant,use_bge=False,bge_path=None,need_clean=False,host='localhost',batch_size=8):
     import uuid
@@ -48,63 +52,66 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
     print(colorama.Fore.GREEN + f"adding records from {input_file}" + colorama.Style.RESET_ALL)
     batch_insert = 1000
     all_uuids_added = []
-    with open(input_file, 'r', encoding='UTF-8') as f:
-        lines = f.readlines()
-        if is_qdrant:
-            from qdrant_client import QdrantClient
-            from qdrant_client.models import Distance,VectorParams
-            from qdrant_client import models
-            qdrant_client = QdrantClient(host,prefer_grpc=True,grpc_port=6334)
-        else:
-            chroma_client = chromadb.HttpClient(host=host, port=8000)
-            chroma_collection = chroma_client.get_or_create_collection('mycorpus_vdb')
-        progress_bar = tqdm.tqdm(lines,desc=f'adding {input_file} to vdb')
-        documents=[]
-        all_embeddings=[]
-        ids=[]
-        for line in progress_bar:
-            data_obj = orjson.loads(line)
-            if id_field in data_obj:
-                id = data_obj[id_field]
+    try:
+        with open(input_file, 'r', encoding='UTF-8') as f:
+            lines = f.readlines()
+            if is_qdrant:
+                qdrant_client = QdrantClient(host,prefer_grpc=True,grpc_port=6334)
             else:
-                id = str(uuid.uuid4())
-            content = data_obj[content_field]
-            if need_clean:
-                content = clean_in_order(content,clean_functions)
-            if use_bge:
-                embeddings = encoder.encode([content],batch_size=1,max_length=2048)['dense_vecs'].tolist()
-            else:
-                embeddings = encoder.encode_texts([content]).tolist()
-            documents.append(content)
-            all_embeddings.extend(embeddings)
-            ids.append(id)
-            if len(ids) >= batch_insert:
-                print(colorama.Fore.YELLOW+f'adding {batch_insert} records to vdb'+colorama.Style.RESET_ALL)
+                chroma_client = chromadb.HttpClient(host=host, port=8000)
+                chroma_collection = chroma_client.get_or_create_collection('mycorpus_vdb')
+            progress_bar = tqdm.tqdm(lines,desc=f'adding {input_file} to vdb')
+            documents=[]
+            all_embeddings=[]
+            for line in progress_bar:
+                data_obj = orjson.loads(line)
+                content = data_obj[content_field]
+                if need_clean:
+                    content = clean_in_order(content,clean_functions)
+                if content is None or len(content) == 0:
+                    continue
+                if use_bge:
+                    embeddings = encoder.encode([content],batch_size=1,max_length=2048)['dense_vecs'].tolist()
+                else:
+                    embeddings = encoder.encode_texts([content]).tolist()
+                documents.append(content)
+                all_embeddings.extend(embeddings)
+                if len(documents) >= batch_insert:
+                    print(colorama.Fore.YELLOW+f'adding {batch_insert} records to vdb'+colorama.Style.RESET_ALL)
+                    if is_qdrant:
+                        uuids = [str(uuid.uuid4()) for i in range(len(documents))]
+                        assert len(uuids) == len(all_embeddings) and len(uuids) == len(documents)
+                        for i in range(len(documents)):
+                            assert len(all_embeddings[i]) == 1024
+                            assert len(documents[i]) > 0
+                        points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
+                        qdrant_client.upsert(collection_name='mycorpus_vdb',points=points)
+                        all_uuids_added.extend(uuids)
+                    else:
+                        chroma_collection.add(documents=documents,embeddings=all_embeddings,ids=uuids)
+                    documents=[]
+                    all_embeddings=[]
+            if len(documents) > 0:
                 if is_qdrant:
-                    uuids = [str(uuid.uuid4()) for i in range(len(ids))]
+                    uuids = [str(uuid.uuid4()) for i in range(len(documents))]
+                    assert len(uuids) == len(all_embeddings) and len(uuids) == len(documents)
+                    for i in range(len(documents)):
+                        assert len(all_embeddings[i]) == 1024
+                        assert len(documents[i]) > 0
                     points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
                     qdrant_client.upsert(collection_name='mycorpus_vdb',points=points)
                     all_uuids_added.extend(uuids)
                 else:
-                    chroma_collection.add(documents=documents,embeddings=all_embeddings,ids=ids)
-                documents=[]
-                all_embeddings=[]
-                ids=[]
-        if len(ids) > 0:
-            if is_qdrant:
-                uuids = [str(uuid.uuid4()) for i in range(len(ids))]
-                points = models.Batch(ids=uuids, vectors=all_embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
-                qdrant_client.upsert(collection_name='mycorpus_vdb',points=points)
-                all_uuids_added.extend(uuids)
-            else:
-                chroma_collection.add(documents=documents,embeddings=embeddings,ids=ids)
-    #uuid is stored into the basename(input_file)_uuids.txt
-    uuid_file = os.path.join(os.path.dirname(input_file),os.path.basename(input_file).split('.')[0]+'_uuids.txt')
-    print(colorama.Fore.YELLOW+f'saving uuids to {uuid_file}'+colorama.Style.RESET_ALL)
-    with open(uuid_file,'w',encoding='UTF-8') as f:
-        for uuid in all_uuids_added:
-            f.write(uuid+'\n')
-    print(colorama.Fore.RED+f'finished reading {input_file}'+colorama.Style.RESET_ALL)
+                    chroma_collection.add(documents=documents,embeddings=embeddings,ids=uuids)
+        #uuid is stored into the basename(input_file)_uuids.txt
+        uuid_file = os.path.join(os.path.dirname(input_file),os.path.basename(input_file).split('.')[0]+'_uuids.txt')
+        print(colorama.Fore.YELLOW+f'saving uuids to {uuid_file}'+colorama.Style.RESET_ALL)
+        with open(uuid_file,'w',encoding='UTF-8') as f:
+            for uuid in all_uuids_added:
+                f.write(uuid+'\n')
+        print(colorama.Fore.RED+f'finished reading {input_file}'+colorama.Style.RESET_ALL)
+    except Exception as e:
+        traceback.print_exc()
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='build vdb from corpus')
     parser.add_argument('--input', type=str, help='input file or directory')
@@ -134,7 +141,6 @@ if __name__ == '__main__':
         db_proc = subprocess.Popen(['chroma', 'run', '--path', db_path])
 
     if is_dir:
-        import multiprocessing as mp
         with mp.Pool(args.num_processes) as pool:
             for file in os.listdir(args.input):
                 if file.endswith('.json') or file.endswith('.jsonl'):
