@@ -24,12 +24,12 @@ if __name__ == '__main__':
     kept_ids_scores = [set(),set(),set(),set()]
     filtered_scores = [{},{},{},{}]
     progress = tqdm.tqdm(total=len(df),desc=f'filtering {args.input_file}')
-    for row in df.iterrows():
-        doc = row['original_doc']
-        similar_doc = row['similar_doc']
-        score = row['score']
+    for row in df.iter_rows():
+        doc = row[2]
+        similar_doc = row[3]
+        score = row[4]
         docs = [doc,similar_doc]
-        ids = [row['id'],row['similar_id']]
+        ids = [row[0],row[1]]
 
         seleted_id = strategy(doc,similar_doc)
         kept_id = ids[seleted_id]
@@ -50,6 +50,7 @@ if __name__ == '__main__':
                 #now we should filter this id instead
                 filtered[filtered_id] = {'filtered_by':kept_id,'filtered_score':score,'original_doc':kept_doc,'similar_doc':filtered_doc}
                 kept_ids.remove(filtered_id)
+                progress.update(1)
                 continue
             kept_ids.add(id)
             #It means this id is not filtered by other ids
@@ -63,12 +64,13 @@ if __name__ == '__main__':
         progress.update(1)
     progress.close()
     import csv
+    input_basename = os.path.basename(args.input_file).split('.')[0]
     for i in range(len(filtered_scores)):
         filtered = filtered_scores[i]
-        output_file = os.path.join(args.output_dir,f'filtered_{score_groups[i]}_{score_groups[i+1]}.csv')
-        uuid_file = os.path.join(args.output_dir,f'filtered_{score_groups[i]}_{score_groups[i+1]}_uuids.txt')
+        output_file = os.path.join(args.output_dir,f'filtered_{input_basename}_{score_groups[i]}_{score_groups[i+1]}.csv')
+        uuid_file = os.path.join(args.output_dir,f'filtered_{input_basename}_{score_groups[i]}_{score_groups[i+1]}_uuids.txt')
         with open(output_file,'w',encoding='UTF-8') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f,quotechar='"',quoting=csv.QUOTE_MINIMAL,escapechar='\\')
             uuid_file_fp = open(uuid_file,'w',encoding='UTF-8')
             writer.writerow(['id','similar_id','original_doc','similar_doc','score'])
             for key in filtered:
