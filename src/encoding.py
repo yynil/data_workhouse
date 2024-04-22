@@ -12,9 +12,6 @@ import chromadb
 import orjson
 import tqdm
 
-def write_meta_line(line_number, meta_file_path):
-    with open(meta_file_path, 'a', newline='') as meta_file:
-        meta_file.write(str(line_number) + '\n')
 
 def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,use_bge=False,bge_path=None,need_clean=False,host='localhost',batch_size=8):
     try:
@@ -58,6 +55,7 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,use
         all_uuids_added = []
         line_counter=0
         with open(input_file, 'r', encoding='UTF-8') as f:
+            meta_file = os.path.join(os.path.dirname(input_file), os.path.basename(input_file).split('.')[0] + '.txt')
             lines = f.readlines()
             progress_bar = tqdm.tqdm(lines,desc=f'adding {input_file} to vdb')
             documents=[]
@@ -107,10 +105,14 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,use
                     print(colorama.Fore.RED + f"failed to add records to vdb" + colorama.Style.RESET_ALL)
                 line_counter +=1
             if line_counter % 1000 == 0:
-                    write_meta_line(line_counter, meta_file_path)
+                    with open(meta_file, 'a') as meta_file:
+                        meta_file.write(f'{line_counter}\n')
             if len(ids) > 0:
                 uuids = [str(uuid.uuid4()) for i in range(len(ids))]
                 all_uuids_added.extend(uuids)
+        if line_counter % 1000 != 0:
+            with open(meta_file, 'a') as meta_file:
+                meta_file.write(f'{line_counter}\n')
 
         import os
         from colorama import Fore, Style
