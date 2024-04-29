@@ -33,6 +33,9 @@ class SqliteDictWrapper:
             del self.db[key]
         self.db.commit()
 
+    def __iter__(self):
+        return self.db.__iter__()
+
 if __name__ == '__main__':
     import random
     import uuid
