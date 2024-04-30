@@ -2,6 +2,8 @@ import argparse
 import os
 import shutil
 
+from grpc import Compression
+
 def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb'):
     from sqlite_utilities import SqliteDictWrapper
     db = SqliteDictWrapper(db_file)
@@ -13,7 +15,7 @@ def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb')
     uuids = []
     embeddings = []
     documents = []
-    qdrant_client = qdrant_client = QdrantClient(host,prefer_grpc=True,grpc_port=port)
+    qdrant_client = qdrant_client = QdrantClient(host,prefer_grpc=True,grpc_port=port,http2=True,grpc_compression=Compression.Gzip)
     output_uuid_file = os.path.join(output,os.path.basename(db_file).split('.')[0]+'_uuids.txt')
     with open(output_uuid_file,'w',encoding='UTF-8') as f:
         for uuid in db:
