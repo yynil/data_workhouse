@@ -117,7 +117,7 @@ def add_record_to_db(input_file,output_dir, id_field, content_field,rwkv_base,lo
                             except:
                                 print(colorama.Fore.RED + f"failed to write to meta file" + colorama.Style.RESET_ALL)  
                         else:
-                            wrapper[index] = {'uuid':uuid,'embedding':embedding,'document':document}              
+                            wrapper[uuid] = {'embedding':embedding,'document':document}                   
                             index += 1
                     if is_blob:
                         wrapper.commit()
