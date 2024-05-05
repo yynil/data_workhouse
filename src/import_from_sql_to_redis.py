@@ -13,8 +13,8 @@ def import_db_to_redis(db_file, redis_host, redis_port, redis_db=0):
         print("Failed to connect to Redis")
         return
     from tqdm import tqdm
-    progress_bar = tqdm(len(db), desc=f'Importing keys for {db_file} to Redis')
     db = SqliteDictWrapper(db_file)
+    progress_bar = tqdm(len(db), desc=f'Importing keys for {db_file} to Redis')
     batch_size = 4096
     with redis_client.pipeline() as pipe:
         for i,uuid in enumerate(db):
