@@ -85,9 +85,9 @@ if __name__ == '__main__':
             for file in file_list:
                 print(f'processing {file}')
                 pool.apply_async(query_vdb_find_candidate,args=(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc))
-        pool.close()
-        pool.join()
-        print('finished')
+            pool.close()
+            pool.join()
+            print('finished')
     else:
         query_vdb_find_candidate(args.host,args.id_file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc)
     
