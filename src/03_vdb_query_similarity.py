@@ -82,7 +82,8 @@ if __name__ == '__main__':
             if file.endswith('.txt'):
                 file_list.append(os.path.join(args.input_dir,file))
         with mp.Pool(args.num_process) as pool:
-            pool.apply_async(query_vdb_find_candidate,[(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc) for file in file_list])
+            for file in file_list:
+                pool.apply_async(query_vdb_find_candidate,(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc))
         pool.close()
         pool.join()
         print('finished')
