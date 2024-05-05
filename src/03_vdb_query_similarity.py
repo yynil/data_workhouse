@@ -83,6 +83,7 @@ if __name__ == '__main__':
                 file_list.append(os.path.join(args.input_dir,file))
         with mp.Pool(args.num_process) as pool:
             for file in file_list:
+                print(f'processing {file}')
                 pool.apply_async(query_vdb_find_candidate,args=(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc))
         pool.close()
         pool.join()
