@@ -1,7 +1,7 @@
 import colorama
 from grpc import Compression
 def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_name,fetch_doc=False):
-    print(colorama.Fore.GREEN + f"querying vdb for {id_file}, with threshold {score_threshold}, with output {output_dir} to host {host}, weather fetch doc {fetch_doc}" + colorama.Style.RESET_ALL)
+    print(colorama.Fore.GREEN + f"querying vdb for {id_file}, with threshold {score_threshold}, with output {output_dir} to host {host}, if fetch doc {fetch_doc}" + colorama.Style.RESET_ALL)
     with open(id_file,'r',encoding='UTF-8') as f:
         ids = f.readlines()
     from qdrant_client import QdrantClient
@@ -83,7 +83,7 @@ if __name__ == '__main__':
                 file_list.append(os.path.join(args.input_dir,file))
         with mp.Pool(args.num_process) as pool:
             for file in file_list:
-                pool.apply_async(query_vdb_find_candidate,(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc))
+                pool.apply_async(query_vdb_find_candidate,args=(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc))
         pool.close()
         pool.join()
         print('finished')
