@@ -1,5 +1,5 @@
 import colorama
-def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,fetch_doc=False):
+def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_name,fetch_doc=False):
     print(colorama.Fore.GREEN + f"querying vdb for {id_file}, with threshold {score_threshold}, with output {output_dir} to host {host}, weather fetch doc {fetch_doc}" + colorama.Style.RESET_ALL)
     with open(id_file,'r',encoding='UTF-8') as f:
         ids = f.readlines()
@@ -7,7 +7,7 @@ def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,fetch_doc=F
     import qdrant_client.models as models
     client = QdrantClient(host,prefer_grpc=True,grpc_port=6334)
     print('Client created')
-    collection_name = 'mycorpus_vdb'
+    # collection_name = 'mycorpus_vdb'
     offset = None
     cnt = 0
     print_cnt = 0
@@ -69,6 +69,7 @@ if __name__ == '__main__':
     parser.add_argument('--score_threshold',type=float,default=0.9,help='score threshold to consider as duplicated')
     parser.add_argument('--output_dir',type=str,help='output directory',required=True)
     parser.add_argument('--fetch_doc',action='store_true',help='fetch document',default=False)
+    parser.add_argument('--collection_name',type=str,default='wudao',help='collection name')
     args = parser.parse_args()
     import os
     os.makedirs(args.output_dir,exist_ok=True)
@@ -79,8 +80,8 @@ if __name__ == '__main__':
                 file_list.append(os.path.join(args.input_dir,file))
         import multiprocessing as mp
         with mp.Pool(args.num_process) as pool:
-            pool.starmap(query_vdb_find_candidate,[(args.host,file,args.score_threshold,args.output_dir,args.fetch_doc) for file in file_list])
+            pool.starmap(query_vdb_find_candidate,[(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc) for file in file_list])
         print('finished')
     else:
-        query_vdb_find_candidate(args.host,args.id_file,args.score_threshold,args.output_dir,args.fetch_doc)
+        query_vdb_find_candidate(args.host,args.id_file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc)
     
