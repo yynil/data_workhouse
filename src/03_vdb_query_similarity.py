@@ -21,13 +21,29 @@ def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_
     }
     from tqdm import tqdm
     progess = tqdm(ids,desc=f'querying id in {id_file}')
+    batch_search = 8
+    batch_ids = []
     for id in progess:
         id = id.strip()
-        records = client.retrieve(collection_name,[id],with_payload=True,with_vectors=True)
-        if len(records) == 0:
-            print(f'{id} not found')
+        batch_ids.append(id)
+        if len(batch_ids) < batch_search:
             continue
-        search_params=models.SearchParams(hnsw_ef=128, exact=False)
+        findSimilarRecords(score_threshold, collection_name, fetch_doc, models, client, duplicated_data, batch_ids)
+        batch_ids = []
+    #repeat the last batch
+    findSimilarRecords(score_threshold, collection_name, fetch_doc, models, client, duplicated_data, batch_ids)
+    client.close()
+    import pandas as pd
+    import os
+    df = pd.DataFrame(duplicated_data)
+    output_file = os.path.join(output_dir,os.path.basename(id_file).split('.')[0]+'_duplicated.csv')
+    df.to_csv(output_file,index=False,escapechar='\\')
+    print(f'output saved to {output_file} for {id_file}')
+
+def findSimilarRecords(score_threshold, collection_name, fetch_doc, models, client, duplicated_data, batch_ids):
+    if len(batch_ids) > 0:
+        records = client.retrieve(collection_name,batch_ids,with_payload=fetch_doc,with_vectors=True)
+        search_params=models.SearchParams(hnsw_ef=32, exact=False)
         search_queries = [
             models.SearchRequest(
                 vector=record.vector,
@@ -47,6 +63,7 @@ def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_
         results = client.search_batch(collection_name=collection_name,requests=search_queries)
         for i in range(len(results)):
             result = results[i]
+            id = records[i].id
             if len(result) > 0:
                 for r in result:
                     duplicated_data['id'].append(id)
@@ -54,18 +71,11 @@ def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_
                     duplicated_data['original_doc'].append(records[i].payload['doc'] if fetch_doc else '')
                     duplicated_data['similar_doc'].append(r.payload['doc'] if fetch_doc else '')
                     duplicated_data['score'].append(r.score)
-    client.close()
-    import pandas as pd
-    import os
-    df = pd.DataFrame(duplicated_data)
-    output_file = os.path.join(output_dir,os.path.basename(id_file).split('.')[0]+'_duplicated.csv')
-    df.to_csv(output_file,index=False,escapechar='\\')
-    print(f'output saved to {output_file} for {id_file}')
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='query vdb')
-    parser.add_argument('--host', type=str, default='localhost',help='host of vdb')
-    parser.add_argument('--id_file', type=str, default='all_ids.txt',help='id_file to query')
+    parser.add_argument('--host', type=str, default='47.113.113.230',help='host of vdb')
+    parser.add_argument('--id_file', type=str, default='/home/yueyulin/data/wudao_uuids/4/1/part-2021016902_uuids.txt',help='id_file to query')
     parser.add_argument('--input_dir',type=str,help='input directory')
     parser.add_argument('--num_process',type=int,default=4,help='number of process to use for multiprocessing')
     parser.add_argument('--score_threshold',type=float,default=0.9,help='score threshold to consider as duplicated')
