@@ -49,7 +49,6 @@ def findSimilarRecords(score_threshold, collection_name, fetch_doc, models, clie
                 vector=record.vector,
                 filter=models.Filter(
                     must_not=[
-                        models.IsEmptyCondition(is_empty=models.PayloadField(key="doc")),
                         models.HasIdCondition(has_id=[record.id]),
                     ],
                 ),

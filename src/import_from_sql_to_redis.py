@@ -12,18 +12,24 @@ def import_db_to_redis(db_file, redis_host, redis_port, redis_db=0):
     except redis.exceptions.ConnectionError:
         print("Failed to connect to Redis")
         return
-
+    from tqdm import tqdm
+    progress_bar = tqdm(len(db), desc=f'Importing keys for {db_file} to Redis')
     db = SqliteDictWrapper(db_file)
+    batch_size = 4096
+    with redis_client.pipeline() as pipe:
+        for i,uuid in enumerate(db):
+            value = db[str(uuid)]
+            document = value['document']
 
-    for uuid in db:
-        value = db[str(uuid)]
-        document = value['document']
-
-        try:
-            redis_client.set(f'uuid:{uuid}', json.dumps(document))
-        except TypeError as e:
-            print(f"Failed to serialize document for UUID {uuid}: {e}")
-
+            try:
+                pipe.set(uuid, document)
+            except TypeError as e:
+                print(f"Failed to serialize document for UUID {uuid}: {e}")
+            if i % batch_size == 0:
+                pipe.execute()
+                progress_bar.update(batch_size)
+        pipe.execute()
+    db.close()
     print("Import to Redis complete")
 
 def main():
