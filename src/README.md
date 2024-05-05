@@ -84,6 +84,19 @@ Qdrant以Linux Docker启动，数据目录挂载到本地SSD。
 
 Client 8进程写入，共享一块显卡，TPS约25。如果提前对文本进行清理，TPS可达到50。
 
+### Qdrant optimization
+
+- Increase the segment count to increase the throuput:
+
+```curl
+curl -X PATCH -H "Content-Type: application/json" -d '{
+    "optimizers_config": {
+      "max_segment_size": 524288
+   }
+}' http://47.113.113.230:6333/collections/wudao
+```
+
+
 ### 去重测试结果
 去重流程如下图流程图所示：
 

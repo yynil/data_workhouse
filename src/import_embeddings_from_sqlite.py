@@ -8,7 +8,7 @@ def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb')
     from sqlite_utilities import SqliteDictWrapper
     db = SqliteDictWrapper(db_file)
     from tqdm import tqdm
-    progress_bar = tqdm(len(db), desc=f'Importing keys for {db_file} to qdrant', unit='keys', unit_scale=True, unit_divisor=1024,dynamic_ncols=True)
+    progress_bar = tqdm(len(db), desc=f'Importing keys for {db_file} to qdrant', unit='keys')
     batch_import = 4096
     from qdrant_client import QdrantClient
     from qdrant_client import models
@@ -17,8 +17,16 @@ def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb')
     documents = []
     qdrant_client = qdrant_client = QdrantClient(host,prefer_grpc=True,grpc_port=port,http2=True,grpc_compression=Compression.Gzip)
     output_uuid_file = os.path.join(output,os.path.basename(db_file).split('.')[0]+'_uuids.txt')
+    #load uuids to set to skip
+    if os.path.exists(output_uuid_file):
+        with open(output_uuid_file,'r',encoding='UTF-8') as f:
+            uuids_to_skip = set([line.strip() for line in f])
     with open(output_uuid_file,'w',encoding='UTF-8') as f:
         for uuid in db:
+            progress_bar.update(1)
+            if uuid in uuids_to_skip:
+                progress_bar.set_postfix_str(f'skip {uuid}')
+                continue
             f.write(f'{uuid}\n')
             # {'embedding':embedding,'document':document}
             value = db[uuid]
@@ -33,7 +41,6 @@ def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb')
                 uuids = []
                 embeddings = []
                 documents = []
-            progress_bar.update(1)
     if len(uuids) > 0:
         points = models.Batch(ids=uuids, vectors=embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
         qdrant_client.upsert(collection_name=collection_name,points=points)
