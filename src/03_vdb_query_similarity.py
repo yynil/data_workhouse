@@ -1,11 +1,12 @@
 import colorama
+from grpc import Compression
 def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_name,fetch_doc=False):
     print(colorama.Fore.GREEN + f"querying vdb for {id_file}, with threshold {score_threshold}, with output {output_dir} to host {host}, weather fetch doc {fetch_doc}" + colorama.Style.RESET_ALL)
     with open(id_file,'r',encoding='UTF-8') as f:
         ids = f.readlines()
     from qdrant_client import QdrantClient
     import qdrant_client.models as models
-    client = QdrantClient(host,prefer_grpc=True,grpc_port=6334)
+    client = QdrantClient(host,prefer_grpc=True,grpc_port=6334,http2=True,grpc_compression=Compression.Gzip)
     print('Client created')
     # collection_name = 'mycorpus_vdb'
     offset = None
@@ -53,6 +54,7 @@ def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_
                     duplicated_data['original_doc'].append(records[i].payload['doc'] if fetch_doc else '')
                     duplicated_data['similar_doc'].append(r.payload['doc'] if fetch_doc else '')
                     duplicated_data['score'].append(r.score)
+    client.close()
     import pandas as pd
     import os
     df = pd.DataFrame(duplicated_data)
@@ -74,13 +76,15 @@ if __name__ == '__main__':
     import os
     os.makedirs(args.output_dir,exist_ok=True)
     if args.input_dir:
+        import multiprocessing as mp
         file_list = []
         for file in os.listdir(args.input_dir):
             if file.endswith('.txt'):
                 file_list.append(os.path.join(args.input_dir,file))
-        import multiprocessing as mp
         with mp.Pool(args.num_process) as pool:
-            pool.starmap(query_vdb_find_candidate,[(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc) for file in file_list])
+            pool.apply_async(query_vdb_find_candidate,[(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc) for file in file_list])
+        pool.close()
+        pool.join()
         print('finished')
     else:
         query_vdb_find_candidate(args.host,args.id_file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc)
