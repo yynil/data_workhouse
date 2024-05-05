@@ -12,26 +12,38 @@ import chromadb
 import orjson
 import tqdm
 from colorama import Fore, Style
+from datetime import datetime
 
-def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,use_bge=False,bge_path=None,need_clean=False,host='localhost',batch_size=8):
+def add_record_to_db(input_file,output_dir, id_field, content_field,rwkv_base,lora_path,use_bge=False,bge_path=None,need_clean=False,host='localhost',batch_size=8,is_blob=False):
     import uuid
     import os
-    try:
-        db_file = os.path.join(os.path.dirname(input_file), os.path.basename(input_file).split('.')[0] + '.db')
-        print(Fore.YELLOW + f'Saving data to {db_file}' + Style.RESET_ALL)
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
+    if not is_blob:
+        try:
+            db_file = os.path.join(output_dir, os.path.basename(input_file).split('.')[0] + '.db')
+            print(Fore.YELLOW + f'Saving data to {db_file}' + Style.RESET_ALL)
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS embeddings (
-                UUID TEXT PRIMARY KEY,
-                Embedding TEXT,
-                Document TEXT
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    UUID TEXT PRIMARY KEY,
+                    Embedding TEXT,
+                    Document TEXT
+                )
+            """)
+            print(colorama.Fore.GREEN + f'Database file {db_file} created' + Style.RESET_ALL)
+            #select count(*) from embeddings as skipped_lines
+            cursor.execute("SELECT COUNT(*) FROM embeddings")
+            skipped_lines = cursor.fetchone()[0]
+        except:
+            print(colorama.Fore.RED + f'Error creating database file {db_file}' + Style.RESET_ALL)
+    else:
+        from sqlite_utilities import SqliteDictWrapper
+        db_file = os.path.join(output_dir, os.path.basename(input_file).split('.')[0] + '.db')
+        print(Fore.YELLOW + f'Saving data to {db_file}' + Style.RESET_ALL)
+        wrapper = SqliteDictWrapper(db_file)
         print(colorama.Fore.GREEN + f'Database file {db_file} created' + Style.RESET_ALL)
-    except:
-        print(colorama.Fore.RED + f'Error creating database file {db_file}' + Style.RESET_ALL)
+        skipped_lines = len(wrapper)
     if need_clean:
         from clean import clean_in_order
         clean_functions=[
@@ -48,34 +60,29 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,use
                 from FlagEmbedding import BGEM3FlagModel
                 encoder = BGEM3FlagModel(bge_path)
             except:
+                import traceback
+                traceback.print_exc()
                 print(colorama.Fore.RED + f"bge_path {bge_path} not found" + colorama.Style.RESET_ALL)
     print(colorama.Fore.GREEN + f"adding records from {input_file}" + colorama.Style.RESET_ALL)
-    batch_insert = 5
-    all_uuids_added = []
+    batch_insert = 1000
     line_counter=0
+    index = skipped_lines
+    print(colorama.Fore.GREEN + f"skipped {skipped_lines} lines" + colorama.Style.RESET_ALL)
     with open(input_file, 'r', encoding='UTF-8') as f:
         meta_file = os.path.join(os.path.dirname(input_file), os.path.basename(input_file).split('.')[0] + '.txt')
         lines = f.readlines()
-        progress_bar = tqdm.tqdm(lines,desc=f'adding {input_file} to vdb')
+        progress_bar = tqdm.tqdm(lines[skipped_lines:],desc=f'adding {input_file} to vdb')
         documents=[]
         all_embeddings=[]
-        ids=[]
         for line in progress_bar:
             try:
                 data_obj = orjson.loads(line)
-            except:
-                print(colorama.Fore.RED + f"failed to load line" + colorama.Style.RESET_ALL)
-            try:
-                if id_field in data_obj:
-                    id = data_obj[id_field]
-                else:
-                    id = str(uuid.uuid4())
-            except:
-                print(colorama.Fore.RED + f"failed to get id" + colorama.Style.RESET_ALL)        
-            try:
                 content = data_obj[content_field]
             except:
-                print(colorama.Fore.RED + f"failed to get content" + colorama.Style.RESET_ALL)
+                import traceback
+                traceback.print_exc()
+                print(colorama.Fore.RED + f"failed to get content {line}" + colorama.Style.RESET_ALL)
+                continue
             try:        
                 if need_clean:
                     content = clean_in_order(content,clean_functions)
@@ -83,51 +90,71 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,use
                     embeddings = encoder.encode([content],batch_size=1,max_length=2048)['dense_vecs'].tolist()
                 else:
                     embeddings = encoder.encode_texts([content]).tolist()
-                    print(colorama.Fore.GREEN + f"encoded content " + colorama.Style.RESET_ALL)
             except:
-                print(colorama.Fore.RED + f"failed to encode content" + colorama.Style.RESET_ALL)
+                import traceback
+                traceback.print_exc()
+                print(colorama.Fore.RED + f"failed to encode content {content}" + colorama.Style.RESET_ALL)
             try:
                 documents.append(content)
                 all_embeddings.extend(embeddings)
-                ids.append(id)
             except:
                 print(colorama.Fore.RED + f"failed to append content" + colorama.Style.RESET_ALL)   
             import uuid
-            if len(ids) >= batch_insert:
+            if len(documents) >= batch_insert:
                     print(colorama.Fore.YELLOW+f'adding {batch_insert} records to vdb'+colorama.Style.RESET_ALL)
-                    uuids = [str(uuid.uuid4()) for i in range(len(ids))]
-                    all_uuids_added.extend(uuids)
-                    for uuid, embedding, document in zip(ids, all_embeddings, documents):
-                        try:
-                            cursor.execute("INSERT INTO embeddings (UUID, Embedding, Document) VALUES (?, ?, ?)", (uuid, str(embedding), document))
-                            conn.commit()
-                        except:
-                            print(colorama.Fore.RED + f"failed to insert record" + colorama.Style.RESET_ALL)
-                    try:
-                        with open(meta_file, 'a') as meta_file_handle:
-                             meta_file_handle.write(f'{line_counter}\n') 
-                    except:
-                        print(colorama.Fore.RED + f"failed to write to meta file" + colorama.Style.RESET_ALL)                
+                    uuids = [str(uuid.uuid4()) for i in range(len(documents))]
+                    now = datetime.now()
+                    for uuid, embedding, document in zip(uuids, all_embeddings, documents):
+                        if not is_blob:
+                            try:
+                                cursor.execute("INSERT INTO embeddings (UUID, Embedding, Document) VALUES (?, ?, ?)", (uuid, str(embedding), document))
+                                conn.commit()
+                            except:
+                                print(colorama.Fore.RED + f"failed to insert record" + colorama.Style.RESET_ALL)
+                            try:
+                                with open(meta_file, 'a') as meta_file_handle:
+                                    meta_file_handle.write(f'{line_counter}\n') 
+                            except:
+                                print(colorama.Fore.RED + f"failed to write to meta file" + colorama.Style.RESET_ALL)  
+                        else:
+                            wrapper[uuid] = {'embedding':embedding,'document':document}                   
+                            index += 1
+                    if is_blob:
+                        wrapper.commit()
+                    
+                    elapsed = datetime.now() - now
+                    print(colorama.Fore.YELLOW+f'added {batch_insert} records in {elapsed}'+colorama.Style.RESET_ALL)
+
                     documents=[]
                     all_embeddings=[]
-                    ids=[]
            
             line_counter +=1
         import uuid
-        if len(ids) > 0:
-            uuids = [str(uuid.uuid4()) for i in range(len(ids))]
-            all_uuids_added.extend(uuids) 
-            for uuid, embedding, document in zip(ids, all_embeddings, documents):
-                try:
-                    cursor.execute("INSERT INTO embeddings (UUID, Embedding, Document) VALUES (?, ?, ?)", (uuid, str(embedding), document))
-                    conn.commit()
-                except:
-                    print(colorama.Fore.RED + f"failed to insert record 2" + colorama.Style.RESET_ALL)
-            conn.commit()
-            cursor.close()
-            conn.close()
-            with open(meta_file, 'a') as meta_file_handle:
-                meta_file_handle.write(f'{line_counter}\n')
+        if len(documents) > 0:
+            uuids = [str(uuid.uuid4()) for i in range(len(documents))]
+            for uuid, embedding, document in zip(uuids, all_embeddings, documents):
+                if not is_blob:
+                    try:
+                        cursor.execute("INSERT INTO embeddings (UUID, Embedding, Document) VALUES (?, ?, ?)", (uuid, str(embedding), document))
+                        conn.commit()
+                    except:
+                        print(colorama.Fore.RED + f"failed to insert record" + colorama.Style.RESET_ALL)
+                    try:
+                        with open(meta_file, 'a') as meta_file_handle:
+                            meta_file_handle.write(f'{line_counter}\n') 
+                    except:
+                        print(colorama.Fore.RED + f"failed to write to meta file" + colorama.Style.RESET_ALL)  
+                else:
+                    wrapper[uuid] = {'embedding':embedding,'document':document}              
+                    index += 1
+            if is_blob:
+                wrapper.commit()
+            else:
+                conn.commit()
+                cursor.close()
+                conn.close()
+                with open(meta_file, 'a') as meta_file_handle:
+                    meta_file_handle.write(f'{line_counter}\n')
 
    
     
@@ -149,6 +176,7 @@ if __name__ == '__main__':
     parser.add_argument('--need_clean',action='store_true',default=False,help='clean the input file before adding to db')
     parser.add_argument('--batch_size',type=int,default=32,help='batch size for encoding')
     parser.add_argument('--host',type=str,default='localhost',help='host of qdrant')
+    parser.add_argument('--is_blob',action='store_true',default=False,help='If the embedding is stored as BLOB')
     args = parser.parse_args()
     is_dir = True
     if os.path.isfile(args.input):    
@@ -163,8 +191,8 @@ if __name__ == '__main__':
         with mp.Pool(args.num_processes) as pool:
             for file in os.listdir(args.input):
                 if file.endswith('.json') or file.endswith('.jsonl'):
-                    pool.apply_async(add_record_to_db,args = (os.path.join(args.input,file),args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.use_bge,args.bge_path,args.need_clean,args.host, args.batch_size))
+                    pool.apply_async(add_record_to_db,args = (os.path.join(args.input,file),args.output,args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.use_bge,args.bge_path,args.need_clean,args.host, args.batch_size,args.is_blob))
             pool.close()
             pool.join()
     else:
-        add_record_to_db(args.input,args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.use_bge,args.bge_path,args.need_clean,args.host, args.batch_size)
+        add_record_to_db(args.input,args.output,args.id_field,args.content_field,args.base_rwkv_model,args.lora_path,args.use_bge,args.bge_path,args.need_clean,args.host, args.batch_size,args.is_blob)

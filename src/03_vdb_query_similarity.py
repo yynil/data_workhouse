@@ -1,13 +1,14 @@
 import colorama
-def query_vdb_find_candidate(host,id_file,score_threshold,output_dir):
-    print(colorama.Fore.GREEN + f"querying vdb for {id_file}, with threshold {score_threshold}, with output {output_dir} to host {host}" + colorama.Style.RESET_ALL)
+from grpc import Compression
+def query_vdb_find_candidate(host,id_file,score_threshold,output_dir,collection_name,fetch_doc=False):
+    print(colorama.Fore.GREEN + f"querying vdb for {id_file}, with threshold {score_threshold}, with output {output_dir} to host {host}, if fetch doc {fetch_doc}" + colorama.Style.RESET_ALL)
     with open(id_file,'r',encoding='UTF-8') as f:
         ids = f.readlines()
     from qdrant_client import QdrantClient
     import qdrant_client.models as models
-    client = QdrantClient(host,prefer_grpc=True,grpc_port=6334)
+    client = QdrantClient(host,prefer_grpc=True,grpc_port=6334,http2=True,grpc_compression=Compression.Gzip)
     print('Client created')
-    collection_name = 'mycorpus_vdb'
+    # collection_name = 'mycorpus_vdb'
     offset = None
     cnt = 0
     print_cnt = 0
@@ -39,7 +40,7 @@ def query_vdb_find_candidate(host,id_file,score_threshold,output_dir):
                 limit=10,
                 params=search_params,
                 score_threshold=score_threshold,
-                with_payload=True,
+                with_payload=fetch_doc,
             )
             for record in records
         ]
@@ -50,9 +51,10 @@ def query_vdb_find_candidate(host,id_file,score_threshold,output_dir):
                 for r in result:
                     duplicated_data['id'].append(id)
                     duplicated_data['similar_id'].append(r.id)
-                    duplicated_data['original_doc'].append(records[i].payload['doc'])
-                    duplicated_data['similar_doc'].append(r.payload['doc'])
+                    duplicated_data['original_doc'].append(records[i].payload['doc'] if fetch_doc else '')
+                    duplicated_data['similar_doc'].append(r.payload['doc'] if fetch_doc else '')
                     duplicated_data['score'].append(r.score)
+    client.close()
     import pandas as pd
     import os
     df = pd.DataFrame(duplicated_data)
@@ -68,18 +70,24 @@ if __name__ == '__main__':
     parser.add_argument('--num_process',type=int,default=4,help='number of process to use for multiprocessing')
     parser.add_argument('--score_threshold',type=float,default=0.9,help='score threshold to consider as duplicated')
     parser.add_argument('--output_dir',type=str,help='output directory',required=True)
+    parser.add_argument('--fetch_doc',action='store_true',help='fetch document',default=False)
+    parser.add_argument('--collection_name',type=str,default='wudao',help='collection name')
     args = parser.parse_args()
     import os
     os.makedirs(args.output_dir,exist_ok=True)
     if args.input_dir:
+        import multiprocessing as mp
         file_list = []
         for file in os.listdir(args.input_dir):
             if file.endswith('.txt'):
                 file_list.append(os.path.join(args.input_dir,file))
-        import multiprocessing as mp
         with mp.Pool(args.num_process) as pool:
-            pool.starmap(query_vdb_find_candidate,[(args.host,file,args.score_threshold,args.output_dir) for file in file_list])
-        print('finished')
+            for file in file_list:
+                print(f'processing {file}')
+                pool.apply_async(query_vdb_find_candidate,args=(args.host,file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc))
+            pool.close()
+            pool.join()
+            print('finished')
     else:
-        query_vdb_find_candidate(args.host,args.id_file,args.score_threshold,args.output_dir)
+        query_vdb_find_candidate(args.host,args.id_file,args.score_threshold,args.output_dir,args.collection_name,args.fetch_doc)
     

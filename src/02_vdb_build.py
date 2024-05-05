@@ -47,8 +47,19 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
         dir_name = os.path.dirname(file_path)
         tokenizer_file = os.path.join(dir_name, 'rwkv_vocab_v20230424.txt')
         tokenizer = TRIE_TOKENIZER(tokenizer_file)
-        from infer.encoders import BiEncoder
-        encoder = BiEncoder(rwkv_base,lora_path,tokenizer)
+        import torch
+        from src.model_run import BiEncoder, RWKV,create_empty_args,load_embedding_ckpt_and_parse_args
+        dtype = torch.bfloat16
+        args = create_empty_args()
+        w = load_embedding_ckpt_and_parse_args(rwkv_base, args)
+        model = RWKV(args)
+        info = model.load_state_dict(w)
+        model = model.to(dtype)
+        model.eval()
+        print(f'loaded model from {rwkv_base}, info: {info}')
+        encoder = BiEncoder(model,lora_path,tokenizer,dtype=dtype,lora_type='lora',add_mlp=True,mlp_dim=1024,lora_r=8,lora_alpha=32,target_modules=['emb','ffn.key','ffn.value','ffn.receptance'],adapter_name='bi_embedding_lora',original_adapter_name='embedding_lora')
+        # from infer.encoders import BiEncoder
+        # encoder = BiEncoder(rwkv_base,lora_path,tokenizer)
     print(colorama.Fore.GREEN + f"adding records from {input_file}" + colorama.Style.RESET_ALL)
     batch_insert = 1000
     all_uuids_added = []
@@ -73,7 +84,7 @@ def add_record_to_db(input_file, id_field, content_field,rwkv_base,lora_path,is_
                 if use_bge:
                     embeddings = encoder.encode([content],batch_size=1,max_length=2048)['dense_vecs'].tolist()
                 else:
-                    embeddings = encoder.encode_texts([content]).tolist()
+                    embeddings = [encoder.encode_texts(content).tolist()]
                 documents.append(content)
                 all_embeddings.extend(embeddings)
                 if len(documents) >= batch_insert:
