@@ -9,16 +9,15 @@ from redis_utility import get_redis_client,get_docs_from_redis,get_doc_from_redi
 import os
 import tqdm
 import polars as pl
-def filter_file(input_file,output_dir,strategy,redis_host,redis_port,redis_db):
+def filter_file(input_file,output_dir,strategy,redis_host,redis_port,redis_db,score_groups):
     input_dir = os.path.dirname(input_file)
     assert input_dir != output_dir
     os.makedirs(output_dir,exist_ok=True)
     strategy = strategies[strategy]
     df = pl.read_csv(input_file)
     print(df)
-    score_groups = [0,0.95,0.98,1,1.5]
-    kept_ids_scores = [set(),set(),set(),set()]
-    filtered_scores = [{},{},{},{}]
+    kept_ids_scores = [set() for i in range(len(score_groups)-1)]
+    filtered_scores = [{} for i in range(len(score_groups)-1)]
     progress = tqdm.tqdm(total=len(df),desc=f'filtering {input_file}')
     redis_client = get_redis_client(redis_host,redis_port,redis_db)
     for row in df.iter_rows():
@@ -90,10 +89,11 @@ if __name__ == '__main__':
     parser.add_argument('--redis_port', type=int, default=6379, help='redis port')
     parser.add_argument('--redis_db', type=int, default=0, help='redis db')
     parser.add_argument('--num_process', type=int, default=4, help='number of process to use for multiprocessing')
+    parser.add_argument('--score_groups',type=float,nargs='+',default=[0,0.95,0.98,1,1.5],help='score_groups')
 
     args = parser.parse_args()
     if os.path.isfile(args.input_file):
-        filter_file(args.input_file,args.output_dir,args.strategy,args.redis_host,args.redis_port,args.redis_db)
+        filter_file(args.input_file,args.output_dir,args.strategy,args.redis_host,args.redis_port,args.redis_db,args.score_groups)
     elif os.path.isdir(args.input_file):
         csv_files = []
         for root,dirs,files in os.walk(args.input_file):
@@ -106,7 +106,7 @@ if __name__ == '__main__':
         from multiprocessing import Pool
         with Pool(args.num_process) as pool:
             for input_file in csv_files:
-                pool.apply_async(filter_file,args=(input_file,args.output_dir,args.strategy,args.redis_host,args.redis_port,args.redis_db))
+                pool.apply_async(filter_file,args=(input_file,args.output_dir,args.strategy,args.redis_host,args.redis_port,args.redis_db,args.score_groups))
             pool.close()
             pool.join()
     else:
