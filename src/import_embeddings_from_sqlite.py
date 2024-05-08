@@ -4,7 +4,7 @@ import shutil
 
 from grpc import Compression
 
-def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb'):
+def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb',import_doc=False):
     from sqlite_utilities import SqliteDictWrapper
     db = SqliteDictWrapper(db_file)
     from tqdm import tqdm
@@ -36,13 +36,14 @@ def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb')
             embeddings.append(embedding)
             documents.append(document)
             if len(uuids) % batch_import == 0:
-                points = models.Batch(ids=uuids, vectors=embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
+                points = models.Batch(ids=uuids, vectors=embeddings,
+                                      payloads=[{'doc':documents[i]} for i in range(len(documents))] if import_doc else None)
                 qdrant_client.upsert(collection_name=collection_name,points=points)
                 uuids = []
                 embeddings = []
                 documents = []
     if len(uuids) > 0:
-        points = models.Batch(ids=uuids, vectors=embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))])
+        points = models.Batch(ids=uuids, vectors=embeddings,payloads=[{'doc':documents[i]} for i in range(len(documents))] if import_doc else None)
         qdrant_client.upsert(collection_name=collection_name,points=points)
     db.close()
 
@@ -53,6 +54,7 @@ parser.add_argument('--host', type=str,default='localhost', help='qdrant host')
 parser.add_argument('--port', type=int,default=6334, help='qdrant port')
 parser.add_argument('--collection_name', type=str,default='mycorpus_vdb', help='qdrant collection name')
 parser.add_argument('--num_processes', type=int, default=8, help='Number of processes to use')
+parser.add_argument('--import_doc', action='store_true', help='import document to qdrant')
 args = parser.parse_args()
 os.makedirs(args.output,exist_ok=True)
 
@@ -60,7 +62,7 @@ if os.path.isfile(args.input):
     if os.path.exists(args.output):
         shutil.rmtree(args.output)
     os.makedirs(args.output)
-    import_db_to_qdrant(args.input,args.output,args.host,args.port,args.collection_name)
+    import_db_to_qdrant(args.input,args.output,args.host,args.port,args.collection_name,args.import_doc)
 else:
     from multiprocessing import Pool
     os.makedirs(args.output,exist_ok=True)
@@ -68,6 +70,6 @@ else:
         for file in os.listdir(args.input):
             db_path = os.path.join(args.input,file)
             if db_path.endswith('.db') and os.path.isfile(db_path):
-                pool.apply_async(import_db_to_qdrant,args=(db_path,args.output,args.host,args.port,args.collection_name))
+                pool.apply_async(import_db_to_qdrant,args=(db_path,args.output,args.host,args.port,args.collection_name,args.import_doc))
         pool.close()
         pool.join()
