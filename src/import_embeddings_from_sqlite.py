@@ -8,7 +8,7 @@ def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb',
     from sqlite_utilities import SqliteDictWrapper
     db = SqliteDictWrapper(db_file)
     from tqdm import tqdm
-    progress_bar = tqdm(len(db), desc=f'Importing keys for {db_file} to qdrant', unit='keys')
+    progress_bar = tqdm(total=len(db), desc=f'Importing keys for {db_file} to qdrant', unit='keys')
     batch_import = 4096
     from qdrant_client import QdrantClient
     from qdrant_client import models
