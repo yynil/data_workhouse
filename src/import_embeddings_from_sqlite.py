@@ -21,6 +21,9 @@ def import_db_to_qdrant(db_file,output,host,port,collection_name='mycorpus_vdb',
     if os.path.exists(output_uuid_file):
         with open(output_uuid_file,'r',encoding='UTF-8') as f:
             uuids_to_skip = set([line.strip() for line in f])
+    else:
+        uuids_to_skip = set()
+    print(f'uuids to skip lines:{len(uuids_to_skip)} for {output_uuid_file}')
     with open(output_uuid_file,'w',encoding='UTF-8') as f:
         for uuid in db:
             progress_bar.update(1)
